@@ -66,6 +66,10 @@ func Read(file io.ReaderAt, opts ...Opt) (*Reader, error) {
 	}
 
 	// Validate file magic
+	if header[0] == 'c' && header[1] == 'd' && header[2] == 'e' && header[3] == 'x' {
+		return nil, fmt.Errorf("%w: compact dex unsupported", ErrInvalidHeader)
+	}
+
 	if header[0] != 'd' || header[1] != 'e' || header[2] != 'x' || header[3] != '\n' || header[7] != 0 {
 		return nil, fmt.Errorf("%w: invalid magic", ErrInvalidHeader)
 	}
@@ -691,6 +695,17 @@ func (r *Reader) ReadTypeList(off uint32) (TypeList, error) {
 	return res, nil
 }
 
+type CodeDef struct {
+	RegisterCount uint16
+	IncomingCount uint16
+	OutgoingCount uint16
+	TriesCount    uint16
+	DebugInfoOff  uint32
+	CodeOff       uint32
+	InsnCount     uint32
+	InsnInByte    uint32
+}
+
 type Code struct {
 	RegisterCount uint16
 	IncomingCount uint16
@@ -716,6 +731,52 @@ type CatchHandler struct {
 type HandlerPair struct {
 	TypeID uint32
 	Addr   uint32
+}
+
+func (r *Reader) ReadCodeDef(off uint32) (CodeDef, error) {
+	if off == 0 {
+		panic("invalid code offset")
+	}
+
+	var (
+		res CodeDef
+		err error
+	)
+
+	res.RegisterCount, err = r.readUshort(off)
+	if err != nil {
+		return res, err
+	}
+
+	res.IncomingCount, err = r.readUshort(off + 2)
+	if err != nil {
+		return res, err
+	}
+
+	res.OutgoingCount, err = r.readUshort(off + 4)
+	if err != nil {
+		return res, err
+	}
+
+	res.TriesCount, err = r.readUshort(off + 6)
+	if err != nil {
+		return res, err
+	}
+
+	res.DebugInfoOff, err = r.readUint(off + 8)
+	if err != nil {
+		return res, err
+	}
+
+	res.InsnCount, err = r.readUint(off + 12)
+	if err != nil {
+		return res, err
+	}
+
+	res.InsnInByte = res.InsnCount * 2
+
+	res.CodeOff = off + 16
+	return res, nil
 }
 
 func (r *Reader) ReadCode(off uint32) (Code, error) {
